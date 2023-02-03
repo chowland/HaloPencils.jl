@@ -3,6 +3,11 @@ uuid = "7a0ce8e1-df09-4a8d-b862-9758701b5256"
 authors = ["Chris Howland <c.j.howland@utwente.nl> and contributors"]
 version = "0.1.0"
 
+[deps]
+MPI = "da04e1cc-30fd-572f-bb4f-1f8673147195"
+MPIPreferences = "3da0fdf6-3ccc-4f1b-acd9-58baa6c99267"
+PencilArrays = "0e08944d-e94e-41b1-9406-dcf66b6a9d2e"
+
 [compat]
 julia = "1"
 
