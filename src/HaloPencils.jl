@@ -3,91 +3,63 @@ module HaloPencils
 using MPI
 using PencilArrays
 
+include("HaloUpdates.jl")
+import .HaloUpdates: update_halo!
+
 export update_halo!
 
 
-"""
+const ArrayRegion{N} = NTuple{N,UnitRange{Int}} where N
+include("data_ranges.jl")
 
-    update_halo!(A::PencilArray, lvlhalo::Vector{<Integer})
-
-Update the halo-cells of a PencilArray `A`, given that the halo
-is of the widths given in `lvlhalo` for each of the decomposed dimensions.
-
-The MPI communicator used for the halo update is that stored in `A`,
-which determines whether the domain should be treated as periodic or
-not. By default, the MPI communicator created with a PencilArray is
-not periodic in either direction. To enable halo updates for a periodic
-domain, first create an MPI communicator that specifies the periodicity
-and use that to create a PencilArray, as in the following example.
-
-# Example
-
-```julia
-dims = (8, 12, 9)
-decomp_dims = MPI.Dims_create(MPI.Comm_size(MPI.COMM_WORLD), (0,0))
-comm_cart = MPI.Cart_create(MPI.COMM_WORLD, decomp_dims; periodic=(true, true))
-topo = MPITopology{2}(comm_cart)
-pen = Pencil(topo, dims)
-
-A = PencilArray{Float64}(undef, pen)
-rank = MPI.Comm_rank(comm_cart)
-fill!(A, rank)
-
-HaloPencils.update_halo!(A, [2,1])
-```
-
----
-
-    update_halo!(A::PencilArray, lvlhalo::Integer)
-
-Convenient `update_halo!` constructor for the case where the halo
-width `lvlhalo` is the same in both decomposed dimensions.
-"""
-function update_halo!(A::PencilArray, lvlhalo::Vector{<:Integer})
-    comm = get_comm(A)
-    dims, periods, coords = MPI.Cart_get(comm)
-    periodic = periods.==1
-
-    for (i, n) in enumerate(decomposition(pencil(A)))
-        
-        tag_b = coords[i]
-        if coords[i]+1==dims[i] && periodic[i]
-            tag_t = 0
-        else
-            tag_t = coords[i] + 1
-        end
-
-        neigh_b, neigh_t = MPI.Cart_shift(comm, i-1,1)
-
-        n_end = size(A)[n]
-        T = typeof(A[1,1,1])
-        
-        # Copy data from PencilArray to send buffers
-        send_halo_b = copy(selectdim(A, n, 1+lvlhalo[i]:2*lvlhalo[i]))
-        send_halo_t = copy(selectdim(A, n, n_end-2*lvlhalo[i]+1:n_end-lvlhalo[i]))
-        recv_halo_b = Array{T}(undef, size(send_halo_b))
-        recv_halo_t = Array{T}(undef, size(send_halo_t))
-
-        # Receive from bottom
-        rreqb = MPI.Irecv!(recv_halo_b, comm; source=neigh_b, tag=tag_b)
-        # Receive from top
-        rreqt = MPI.Irecv!(recv_halo_t, comm; source=neigh_t, tag=tag_t)
-        # Send to bottom
-        sreqb = MPI.Isend(send_halo_b, comm; dest=neigh_b, tag=tag_b)
-        # Send to top
-        sreqt = MPI.Isend(send_halo_t, comm; dest=neigh_t, tag=tag_t)
-
-        MPI.Waitall([sreqb, sreqt, rreqb, rreqt])
-        
-        if periodic[i] || tag_b > 0
-            selectdim(A, n, 1:lvlhalo[i]) .= recv_halo_b
-        end
-        if tag_t < dims[i]
-            selectdim(A, n, n_end-lvlhalo[i]+1:n_end) .= recv_halo_t
-        end
+struct HaloPencil{
+        N,  # spatial dimensions
+        M   # MPI topology dimensions (< N)
+    }
+    # Underlying pencil configuration from PencilArrays
+    pencil :: Pencil{N,M}
+    # Global array dimensions (excluding overlapping halos)
+    size_global :: Dims{N}
+    # Halo size in each decomposed dimension
+    halo_levels :: Dims{M}
+    # Part of the array held by every process
+    axes_all :: Array{ArrayRegion{N}, M}
+    # Part of the array held by the local process
+    axes_local :: ArrayRegion{N}
+    
+    function HaloPencil(
+        topology::MPITopology,
+        size_global::Dims{N},
+        halo_levels::Dims{M},
+        decomp_dims::Dims{M} = default_decomposition(N, Val(M))
+    ) where {M, N}
+        procs = complete_dims(Val(N), decomp_dims, topology.dims)
+        halos = complete_halos(Val(N), decomp_dims, halo_levels)
+        size_extended = size_global .+ 2 .* halos .* procs
+        pencil = Pencil(topology, size_extended, decomp_dims)
+        axes_all = generate_axes_matrix(decomp_dims, topology.dims, size_global, halo_levels)
+        axes_local = axes_all[coords_local(topology)...]
+        new{N, M}(
+            pencil, size_global, halo_levels, axes_all, axes_local
+        )
     end
+
 end
 
-update_halo!(A::PencilArray, lvl::Integer) = update_halo!(A, ones(Int32,2)*lvl)
+function HaloPencil(dims::Dims, halo_levels::Dims{M}, decomp::Dims{M}, comm::MPI.Comm) where {M}
+    topo = MPITopology(comm, Val(M))
+    HaloPencil(topo, dims, halo_levels, decomp)
+end
+
+HaloPencil(dims::Dims{N}, halo_levels::Dims{M}, comm::MPI.Comm) where {N, M} = 
+    HaloPencil(dims, halo_levels, default_decomposition(N, Val(M)), comm)
+
+function default_decomposition(N, ::Val{M}) where {M}
+    @assert 0 < M ≤ N
+    ntuple(d -> N - M + d, Val(M))
+end
+
+size_local(halo_pen::HaloPencil) = size(hpen.pencil)
+
 
 end
