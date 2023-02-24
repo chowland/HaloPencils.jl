@@ -7,6 +7,8 @@ include("HaloUpdates.jl")
 import .HaloUpdates: update_halo!
 
 export update_halo!
+export HaloPencil
+export size_local
 
 
 const ArrayRegion{N} = NTuple{N,UnitRange{Int}} where N
