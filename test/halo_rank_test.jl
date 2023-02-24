@@ -15,8 +15,8 @@ A = PencilArray{Float64}(undef, pen)
 rank = MPI.Comm_rank(comm_cart)
 fill!(A, rank)
 
-lvlhalo = [2, 1]
-HaloPencils.update_halo!(A, lvlhalo)
+lvlhalo = (2, 1)
+update_halo!(A, lvlhalo)
 
 nranks = MPI.Comm_size(MPI.COMM_WORLD)
 
@@ -43,5 +43,7 @@ else
     rank_t = mod(rank + decomp_dims[2], nranks)
 end
 @test all(A[:,end-lvy+1:end, 1+lvz:end-lvz] .== rank_t)
+
+# # TO DO: ADD TESTS FOR HALO CORNERS
 
 MPI.Finalize()
