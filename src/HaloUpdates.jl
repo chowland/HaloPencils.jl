@@ -7,7 +7,7 @@ using PencilArrays
 
 """
 
-    update_halo!(A::PencilArray, lvlhalo::Vector{<Integer})
+    update_halo!(A::PencilArray, lvlhalo::Dims{M})
 
 Update the halo-cells of a PencilArray `A`, given that the halo
 is of the widths given in `lvlhalo` for each of the decomposed dimensions.
@@ -32,7 +32,7 @@ A = PencilArray{Float64}(undef, pen)
 rank = MPI.Comm_rank(comm_cart)
 fill!(A, rank)
 
-HaloPencils.update_halo!(A, [2,1])
+HaloPencils.update_halo!(A, (2,1))
 ```
 
 ---
@@ -42,7 +42,7 @@ HaloPencils.update_halo!(A, [2,1])
 Convenient `update_halo!` constructor for the case where the halo
 width `lvlhalo` is the same in both decomposed dimensions.
 """
-function update_halo!(A::PencilArray, lvlhalo::Vector{<:Integer})
+function update_halo!(A::PencilArray, lvlhalo::Dims{M}) where M
     comm = get_comm(A)
     dims, periods, coords = MPI.Cart_get(comm)
     periodic = periods.==1
@@ -87,6 +87,6 @@ function update_halo!(A::PencilArray, lvlhalo::Vector{<:Integer})
     end
 end
 
-update_halo!(A::PencilArray, lvl::Integer) = update_halo!(A, ones(Int32,2)*lvl)
+update_halo!(A::PencilArray, lvl::Integer) = update_halo!(A, (lvl, lvl))
 
 end
